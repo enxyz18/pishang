@@ -27,6 +27,7 @@ export default async function HomePage() {
                 src={`${TMDB_IMAGE_BASE_URL}${item.poster_path}`}
                 alt={item.title}
                 fill
+                priority
                 sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 20vw"
                 className="object-cover group-hover:opacity-90 transition"
               />

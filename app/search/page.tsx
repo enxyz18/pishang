@@ -2,18 +2,19 @@ import { searchMulti, TMDB_IMAGE_BASE_URL } from '@/lib/tmdb';
 import SearchInput from '@/components/SearchInput';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Star, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import BackButton from '@/components/BackButton';
 
 interface SearchPageProps {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; sort?: string }>;
 }
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const { q: query = '', page = '1' } = await searchParams;
+  const { q: query = '', page = '1', sort = 'latest' } = await searchParams;
   const currentPage = parseInt(page, 10) || 1;
+  const sortBy = (sort === 'top_rated' ? 'top_rated' : 'latest') as 'latest' | 'top_rated';
 
-  const { results, total_pages } = await searchMulti(query, currentPage);
+  const { results, total_pages } = await searchMulti(query, currentPage, sortBy);
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-4 sm:p-8 space-y-8">
@@ -26,23 +27,53 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             </h1>
           </Link>
           <p className="text-neutral-400 text-xs mt-1">
-            Hasil Carian Kandungan
+            Hasil Carian Kandungan & Pelakon
           </p>
         </div>
         <SearchInput />
       </header>
-      
+
       <section className="max-w-6xl mx-auto space-y-6">
         <BackButton />
-        <div className="border-l-4 border-yellow-500 pl-3">
+
+        {/* Tajuk & Kawalan Sorting */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-l-4 border-yellow-500 pl-3">
           <h2 className="text-lg sm:text-xl font-bold tracking-wide">
             Hasil carian untuk: <span className="text-yellow-400">"{query}"</span>
           </h2>
+
+          {/* Pilihan Susunan (Sorting Option) */}
+          <div className="flex items-center gap-2 text-xs bg-neutral-900 border border-neutral-800 p-1 rounded-xl self-start sm:self-auto">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-neutral-400 ml-2" />
+            <span className="text-neutral-400 mr-1">Susun:</span>
+            
+            <Link
+              href={`/search?q=${encodeURIComponent(query)}&page=1&sort=latest`}
+              className={`px-3 py-1.5 rounded-lg transition font-medium ${
+                sortBy === 'latest'
+                  ? 'bg-yellow-500 text-black font-bold'
+                  : 'text-neutral-300 hover:text-white'
+              }`}
+            >
+              Terkini
+            </Link>
+
+            <Link
+              href={`/search?q=${encodeURIComponent(query)}&page=1&sort=top_rated`}
+              className={`px-3 py-1.5 rounded-lg transition font-medium ${
+                sortBy === 'top_rated'
+                  ? 'bg-yellow-500 text-black font-bold'
+                  : 'text-neutral-300 hover:text-white'
+              }`}
+            >
+              Rating Tinggi
+            </Link>
+          </div>
         </div>
 
         {results.length === 0 ? (
           <p className="text-sm text-neutral-400 py-10">
-            Tiada kandungan atau pelakon ditemui bagi kata kunci ini.
+            Tiada kandungan yang telah dikeluarkan ditemui bagi kata kunci ini.
           </p>
         ) : (
           <>
@@ -96,7 +127,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               <div className="flex items-center justify-center gap-4 pt-8">
                 {currentPage > 1 ? (
                   <Link
-                    href={`/search?q=${encodeURIComponent(query)}&page=${currentPage - 1}`}
+                    href={`/search?q=${encodeURIComponent(query)}&page=${currentPage - 1}&sort=${sortBy}`}
                     className="flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"
                   >
                     <ChevronLeft className="w-4 h-4" /> Prev
@@ -114,7 +145,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
                 {currentPage < total_pages ? (
                   <Link
-                    href={`/search?q=${encodeURIComponent(query)}&page=${currentPage + 1}`}
+                    href={`/search?q=${encodeURIComponent(query)}&page=${currentPage + 1}&sort=${sortBy}`}
                     className="flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"
                   >
                     Next <ChevronRight className="w-4 h-4" />

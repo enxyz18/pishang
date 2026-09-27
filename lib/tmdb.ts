@@ -58,55 +58,129 @@ export const getTrendingTVShows = async (): Promise<Movie[]> => {
 };
 
 // Fungsi carian multi TMDB
-export const searchMulti = async (query: string, page: number = 1) => {
-  if (!query) return { results: [], total_pages: 0, page: 1 };
+export const searchMulti = async (
+  query: string,
+  page: number = 1,
+  sortBy: 'latest' | 'top_rated' = 'latest'
+) => {
+  if (!query) return { results: [], total_pages: 0 };
 
   try {
-    const response = await tmdbClient.get<TMDBResponse<SearchResultItem>>('/search/multi', {
-      params: {
-        query,
-        page,
-        include_adult: false,
+    // 1. Carian Utama (Tajuk Filem/TV)
+    const multiRes = await axios.get(`${TMDB_BASE_URL}/search/multi`, {
+      params: { query, page: 1 }, // Ambil data penuh untuk ditapis & disusun
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${process.env.TMDB_READ_TOKEN}`,
       },
     });
 
-    // Proses data hasil carian
-    const formattedResults: SearchResultItem[] = [];
-
-    response.data.results.forEach((item) => {
-      if (item.media_type === 'movie' || item.media_type === 'tv') {
-        formattedResults.push({
-          ...item,
-          title: item.title || item.name,
-          release_date: item.release_date || item.first_air_date,
-        });
-      } else if (item.media_type === 'person' && item.known_for) {
-        // Jika carian jumpa nama pelakon, masukkan filem/tv lakonan beliau
-        item.known_for.forEach((known) => {
-          if (known.media_type === 'movie' || known.media_type === 'tv') {
-            formattedResults.push({
-              ...known,
-              title: known.title || known.name,
-              release_date: known.release_date || known.first_air_date,
-            });
-          }
-        });
-      }
+    // 2. Carian Pelakon (Person)
+    const personRes = await axios.get(`${TMDB_BASE_URL}/search/person`, {
+      params: { query },
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${process.env.TMDB_READ_TOKEN}`,
+      },
     });
 
-    // Buang item bertindih (duplicate ID)
-    const uniqueResults = Array.from(
-      new Map(formattedResults.map((m) => [m.id, m])).values()
-    );
+    let actorCredits: any[] = [];
+    const persons = personRes.data.results;
+
+    if (persons && persons.length > 0) {
+      const topPerson = persons[0];
+
+      const creditsRes = await axios.get(
+        `${TMDB_BASE_URL}/person/${topPerson.id}/combined_credits`,
+        {
+          headers: {
+            accept: 'application/json',
+            Authorization: `Bearer ${process.env.TMDB_READ_TOKEN}`,
+          },
+        }
+      );
+
+      const rawCast = creditsRes.data.cast || [];
+
+      // Tapis pelakon tetap sahaja (TV >= 3 episod)
+      const filteredCast = rawCast.filter((item: any) => {
+        if (item.media_type === 'movie') return true;
+        if (item.media_type === 'tv') return item.episode_count && item.episode_count >= 3;
+        return false;
+      });
+
+      actorCredits = filteredCast.map((item: any) => ({
+        id: item.id,
+        media_type: item.media_type,
+        title: item.title || item.name,
+        poster_path: item.poster_path,
+        release_date: item.release_date || item.first_air_date || '',
+        vote_average: item.vote_average || 0,
+        popularity: item.popularity || 0,
+      }));
+    }
+
+    // Normalisasikan carian biasa
+    const multiResults = (multiRes.data.results || [])
+      .filter((item: any) => item.media_type !== 'person')
+      .map((item: any) => ({
+        id: item.id,
+        media_type: item.media_type,
+        title: item.title || item.name,
+        poster_path: item.poster_path,
+        release_date: item.release_date || item.first_air_date || '',
+        vote_average: item.vote_average || 0,
+        popularity: item.popularity || 0,
+      }));
+
+    // Gabungkan hasil carian (nyahduplikasi)
+    const combinedMap = new Map();
+
+    actorCredits.forEach((item) => {
+      if (item.poster_path) combinedMap.set(`${item.media_type}-${item.id}`, item);
+    });
+
+    multiResults.forEach((item: any) => {
+      if (item.poster_path) combinedMap.set(`${item.media_type}-${item.id}`, item);
+    });
+
+    const combinedList = Array.from(combinedMap.values());
+
+    // --- TAPISAN TARIKH (Mesti sudah ditayangkan, selewat-lewatnya 2 minggu dari hari ini) ---
+    const now = new Date();
+    const twoWeeksFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+    const releasedList = combinedList.filter((item) => {
+      if (!item.release_date) return false;
+      const releaseDate = new Date(item.release_date);
+      // Memastikan tarikh wujud dan tidak melebihi 2 minggu akan datang
+      return !isNaN(releaseDate.getTime()) && releaseDate <= twoWeeksFromNow;
+    });
+
+    // --- SUSUNAN (SORTING) ---
+    releasedList.sort((a, b) => {
+      if (sortBy === 'top_rated') {
+        return b.vote_average - a.vote_average;
+      }
+      // Default: 'latest' (paling terkini ke terdahulu)
+      const dateA = new Date(a.release_date).getTime() || 0;
+      const dateB = new Date(b.release_date).getTime() || 0;
+      return dateB - dateA;
+    });
+
+    // Pagination manual
+    const itemsPerPage = 20;
+    const startIndex = (page - 1) * itemsPerPage;
+    const paginatedResults = releasedList.slice(startIndex, startIndex + itemsPerPage);
+    const calculatedTotalPages = Math.ceil(releasedList.length / itemsPerPage) || 1;
 
     return {
-      results: uniqueResults,
-      total_pages: response.data.total_pages,
-      page: response.data.page,
+      results: paginatedResults,
+      total_pages: calculatedTotalPages,
     };
   } catch (error) {
-    console.error('Gagal membuat carian:', error);
-    return { results: [], total_pages: 0, page: 1 };
+    console.error('Gagal menjalankan carian multi:', error);
+    return { results: [], total_pages: 0 };
   }
 };
 
